@@ -42,7 +42,5 @@ def parser_init(**kwargs: Any) -> argparse.ArgumentParser:
         "add_help": False,
     }
     parser = argparse.ArgumentParser(**kwargs_default)
-    parser.add_argument(
-        "--help", "-h", action="help", help="Mostra essa mensagem de ajuda."
-    )
+    parser.add_argument("--help", "-h", action="help", help="Mostra essa mensagem de ajuda.")
     return parser
