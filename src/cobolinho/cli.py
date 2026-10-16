@@ -35,7 +35,7 @@ class _ArgparseFormatter(argparse.HelpFormatter):
         super().start_section(heading)
 
 
-def parser_init(**kwargs: Any) -> argparse.ArgumentParser:
+def create_parser(**kwargs: Any) -> argparse.ArgumentParser:
     """Cria parser argparse com o formatter customizado."""
     kwargs_default: dict[str, Any] = kwargs | {
         "formatter_class": _ArgparseFormatter,

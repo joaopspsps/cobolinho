@@ -41,15 +41,15 @@ class CobolSource:
         if len(starts) > 1 and starts[-1] == len(self.text):
             starts.pop()
 
-        # Usar essa sintaxe porque self é "read-only" dentro de post_init, se não o linter reclama
+        # Usa essa sintaxe porque self é "read-only" dentro de post_init, se não o linter reclama
         object.__setattr__(self, "_line_starts", starts)
 
     @property
     def line_count(self) -> int:
-        """Número de linhas físicas (0 para arquivo vazio)."""
+        """Número de linhas (0 para arquivo vazio)."""
         return 0 if not self.text else len(self._line_starts)
 
-    def line_span(self, number: int) -> Span:
+    def get_line_span(self, number: int) -> Span:
         """Obtém o span da linha `number` (começando em 1), sem o terminador de linha."""
         if not 1 <= number <= self.line_count:
             e = IndexError(f"linha fora do arquivo: {number}")
@@ -64,7 +64,7 @@ class CobolSource:
 
         return Span(start, end)
 
-    def line_col(self, offset: int) -> tuple[int, int]:
+    def to_line_col(self, offset: int) -> tuple[int, int]:
         """Converte offset cru em `(linha, coluna)`, ambos começando em 1."""
         if not 0 <= offset <= len(self.text):
             e = IndexError(f"offset fora do arquivo: {offset}")
@@ -75,7 +75,7 @@ class CobolSource:
 
     def format_location(self, offset: int) -> str:
         """Formata offset como `nome:linha:coluna`."""
-        line, col = self.line_col(offset)
+        line, col = self.to_line_col(offset)
         return f"{self.name}:{line}:{col}"
 
     def __getitem__(self, key: Any) -> str:
