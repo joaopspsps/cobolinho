@@ -1,6 +1,9 @@
-# Convenções
+# Estilo de código
 
-## Nomenclatura
+Convenções opinionadas sobre práticas que tornam o código mais legível,
+eficiente ou fácil de manter.
+
+## Nomenclatura de identificadores (variáveis, funções, classes)
 
 ### Funções começam com verbo
 

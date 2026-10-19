@@ -2,12 +2,11 @@
 
 import bisect
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(slots=True, frozen=True, order=True)
 class Span:
-    """Intervalo semiaberto `[start, end)` de offsets no texto cru."""
+    """Intervalo semiaberto `[start, end)` de offsets."""
 
     start: int
     end: int
@@ -30,15 +29,22 @@ class CobolSource:
     """
 
     name: str
+    """Nome do arquivo ou fonte."""
+
     text: str
+    """Conteúdo do arquivo."""
+
     _line_starts: list[int] = field(init=False, repr=False, compare=False)
+    """Offsets do primeiro caractere de cada linha."""
 
     def __post_init__(self) -> None:
+        """Inicializa `_line_starts`."""
         starts = [0]
         starts.extend(i + 1 for i, c in enumerate(self.text) if c == "\n")
 
-        # Se o texto termina em `\n`, não há linha vazia extra após ele
         if len(starts) > 1 and starts[-1] == len(self.text):
+            # O texto termina em `\n` e não há linha vazia extra após ele; remove índice
+            # inválido
             starts.pop()
 
         # Usa essa sintaxe porque self é "read-only" dentro de post_init, se não o linter reclama
@@ -50,7 +56,19 @@ class CobolSource:
         return 0 if not self.text else len(self._line_starts)
 
     def get_line_span(self, number: int) -> Span:
-        """Obtém o span da linha `number` (começando em 1), sem o terminador de linha."""
+        """Obtém o span da linha `number` (começando em 1), sem o terminador de linha.
+
+        Essa função é a base de toda a localização nos próximos estágios, então estes pontos
+        são importantes:
+        - Para a linha 1, `span.start` aponta para o primeiro caractere do texto (offset
+          0). Para uma linha no meio do texto, `span.start` aponta para o primeiro caractere da
+          linha atual após o `\\n` da linha anterior.
+        - Para uma linha no meio do texto, `span.end` aponta para o próximo `\\n` ou `\\r` (no caso
+          de `\\r\\n`) após o começo da linha. Para a última linha, `span.end` pode apontar ao
+          próximo offset depois do último caractere válido (EOF, igual a `len(text)`), ou a um
+          `\\r`.
+        - Se a linha é vazia, `span.start == span.end`.
+        """
         if not 1 <= number <= self.line_count:
             e = IndexError(f"linha fora do arquivo: {number}")
             raise e
@@ -78,12 +96,6 @@ class CobolSource:
         line, col = self.to_line_col(offset)
         return f"{self.name}:{line}:{col}"
 
-    def __getitem__(self, key: Any) -> str:
-        """Obtém uma porção do texto cru com uma posição absoluta (int) ou um span."""
-        if isinstance(key, int):
-            return self.text[key]
-        if isinstance(key, Span):
-            return self.text[key.start : key.end]
-
-        e = TypeError(f"Tipo inválido: {type(key)}")
-        raise e
+    def slice(self, span: Span) -> str:
+        """Obtém uma porção do texto cru com um span."""
+        return self.text[span.start : span.end]

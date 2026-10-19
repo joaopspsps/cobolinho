@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from .stage0_source import CobolSource, Span
 
 
-class Severity(enum.Enum):
+class DiagnosticSeverity(enum.Enum):
     """Gravidade de um diagnóstico."""
 
     ERROR = "erro"
@@ -17,7 +17,7 @@ class Severity(enum.Enum):
 class Diagnostic:
     """Mensagem associada a um span do texto cru."""
 
-    severity: Severity
+    severity: DiagnosticSeverity
     message: str
     span: Span
 

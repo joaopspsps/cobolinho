@@ -7,12 +7,13 @@ from typing import Self
 
 from .stage0_source import CobolSource, Span
 
-BOUNDS_SEQUENCE = 1, 6
-BOUNDS_INDICATOR = 7, 7
-BOUNDS_A = 8, 11
-BOUNDS_B = 12, 72
-BOUNDS_BODY = BOUNDS_A[0], BOUNDS_B[1]
-BOUNDS_IDENTIFICATION = 73, 80
+# Recortes das áreas por colunas, inclusivas, a partir de 1
+COBOL_COLS_SEQUENCE = 1, 6
+COBOL_COLS_INDICATOR = 7, 7
+COBOL_COLS_A = 8, 11
+COBOL_COLS_B = 12, 72
+COBOL_COLS_BODY = COBOL_COLS_A[0], COBOL_COLS_B[1]
+COBOL_COLS_IDENTIFICATION = 73, 80
 
 
 class CobolLineKind(enum.Enum):
@@ -47,60 +48,61 @@ class CobolLineKind(enum.Enum):
 
 @dataclass(slots=True, frozen=True)
 class CobolLineSpan:
-    """Áreas do formato fixo (colunas inclusivas a partir de 1)."""
+    """Áreas do formato fixo."""
 
     full: Span
-    """Span da linha completa."""
+    """Span da linha inteira, excluindo o terminador (`\\n`, `\\r\\n` ou EOF)."""
 
     @property
     def sequence(self) -> Span:
         """Span da área de sequência."""
-        return self._slice_area(BOUNDS_SEQUENCE)
+        return self._slice(COBOL_COLS_SEQUENCE)
 
     @property
     def indicator(self) -> Span:
         """Span da área do indicador."""
-        return self._slice_area(BOUNDS_INDICATOR)
+        return self._slice(COBOL_COLS_INDICATOR)
 
     @property
     def a(self) -> Span:
         """Span da área A."""
-        return self._slice_area(BOUNDS_A)
+        return self._slice(COBOL_COLS_A)
 
     @property
     def b(self) -> Span:
         """Span da área B."""
-        return self._slice_area(BOUNDS_B)
+        return self._slice(COBOL_COLS_B)
 
     @property
     def body(self) -> Span:
         """Span da área do corpo (A e B)."""
-        return self._slice_area(BOUNDS_BODY)
+        return self._slice(COBOL_COLS_BODY)
 
     @property
     def identification(self) -> Span:
         """Span da área de identificação."""
-        return self._slice_area(BOUNDS_IDENTIFICATION)
+        return self._slice(COBOL_COLS_IDENTIFICATION)
 
-    def _slice_area(self, bounds: tuple[int, int]) -> Span:
-        """Span das colunas `col_start` a `col_end` (inclusivas), truncado ao fim da linha."""
-        boundary_left, boundary_right = bounds
-        area_start = min(self.full.start + boundary_left - 1, self.full.end)
-        area_end = min(self.full.start + boundary_right, self.full.end)
+    def _slice(self, cols: tuple[int, int]) -> Span:
+        """Span das colunas `col_first` a `col_last` (inclusivas), truncado ao fim da linha."""
+        col_first, col_last = cols
+        area_start = min(self.full.start + col_first - 1, self.full.end)
+        area_end = min(self.full.start + col_last, self.full.end)
         return Span(area_start, area_end)
 
 
 @dataclass(slots=True, frozen=True)
 class CobolLine:
-    """Linha do programa recortada nas áreas do formato fixo.
-
-    Todos os spans são offsets no texto cru e são truncados ao fim da linha: numa linha curta,
-    as colunas ausentes não têm span.
-    """
+    """Linha do programa recortada nas áreas do formato fixo."""
 
     number: int
+    """Número da linha do arquivo (a partir de 1)."""
+
     kind: CobolLineKind
+    """Tipo de linha segundo o indicador."""
+
     span: CobolLineSpan
+    """Span da linha inteira, excluindo o terminador (`\\n`, `\\r\\n` ou EOF)."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -112,7 +114,10 @@ class CobolLines:
 
     @classmethod
     def from_source(cls, source: CobolSource) -> Self:
-        """Gera as linhas de `source` classificadas pelo indicador."""
+        """Gera as linhas de `source` classificadas pelo indicador.
+
+        Para cada linha, `span.full` vem de `CobolSource.get_line_span` (ver documentação).
+        """
         lines = []
 
         for number in range(1, source.line_count + 1):
@@ -134,15 +139,19 @@ class CobolLines:
         return iter(self.lines)
 
 
+# Código interno
+# --------------
+
+
 def _classify(source: CobolSource, line_span: CobolLineSpan) -> CobolLineKind:
     if span := line_span.indicator:
-        indicator = source[span]
+        indicator = source.slice(span)
     else:
         indicator = " "
 
     match indicator:
         case " ":
-            body = source[line_span.body]
+            body = source.slice(line_span.body)
             body_is_empty = len(body.strip(" ")) == 0
             return CobolLineKind.BLANK if body_is_empty else CobolLineKind.CODE
         case "*":

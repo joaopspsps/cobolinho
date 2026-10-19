@@ -1,9 +1,7 @@
-# Arquitetura e organização do projeto
+# Escolhas de projeto
 
-## Estrutura do pacote
-
-Como este é um projeto do tipo script, não uma biblioteca, o módulo
-`__init__.py` contém a main do script (orquestrador CLI).
+Escolhas que foram sendo tomadas acerca da arquitetura, organização e filosofia
+do projeto.
 
 ## Estágios
 
@@ -26,10 +24,10 @@ autossuficiente (por exemplo, para formatar localizações `nome:linha:coluna`).
 
 - Cada estágio tem um único construtor, que recebe apenas a saída do estágio
   anterior (mais opções): `CobolLines.from_source(source)`,
-  `NormalizedCobolSource.from_lines(lines)`, etc. Encadear estágios é tarefa do
+  `CobolNormalizedSource.from_lines(lines)`, etc. Encadear estágios é tarefa do
   código de orquestração, não dos estágios.
 - Referências para estágios anteriores usam `field(repr=False, compare=False)`.
 - Atalhos para estágios mais antigos podem ser expostos como `@property` (por
-  exemplo, `NormalizedCobolSource.source` é `self.lines.source`).
-- Estruturas auxiliares (como `NormalizedCobolSourceMap`) são dados puros, sem
+  exemplo, `CobolNormalizedSource.source` é `self.lines.source`).
+- Estruturas auxiliares (como `CobolNormalizedSegments`) são dados puros, sem
   referência ao texto cru; métodos que precisam dele ficam na saída do estágio.
