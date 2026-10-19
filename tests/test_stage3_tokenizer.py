@@ -7,7 +7,7 @@ import pytest
 from cobolinho.stage3_tokenizer import CobolToken, CobolTokens
 from cobolinho.stage3_tokenizer import CobolTokenKind as K
 
-from .utils import CORPUS_CCVS85_NC_FILES, CORPUS_DIR, make_tokens
+from .utils import CORPUS_DIR, CORPUS_NC_FILES, make_tokens
 
 
 def kinds_values(tokens: CobolTokens) -> list[tuple[K, str]]:
@@ -88,7 +88,7 @@ def test_numeric_literal_too_long() -> None:
 
 
 def test_digit_only_procedure_names_nc107a() -> None:
-    tokens = make_tokens(CORPUS_DIR / "ccvs85/NC107A.CBL")
+    tokens = make_tokens(CORPUS_DIR / "NC107A.CBL")
     token = find_token(tokens, "0000000000000000000000001")
     assert token.kind is K.NUMERIC_LITERAL
     assert tokens.format_location(token) == "NC107A.CBL:1949:8"
@@ -96,7 +96,7 @@ def test_digit_only_procedure_names_nc107a() -> None:
 
 
 def test_decimal_point_is_comma_nc107a() -> None:
-    tokens = make_tokens(CORPUS_DIR / "ccvs85/NC107A.CBL")
+    tokens = make_tokens(CORPUS_DIR / "NC107A.CBL")
     token = find_token(tokens, "211113411,114311112")
     assert token.kind is K.NUMERIC_LITERAL
 
@@ -172,7 +172,7 @@ def test_alphanumeric_literal_continued() -> None:
 
 def test_alphanumeric_literal_160_nc107a() -> None:
     # Esse arquivo tem um literal só com aspas começando nas linhas 115-121
-    tokens = make_tokens(CORPUS_DIR / "ccvs85/NC107A.CBL")
+    tokens = make_tokens(CORPUS_DIR / "NC107A.CBL")
     lengths = {len(t.value) for t in tokens if t.kind is K.ALPHANUMERIC_LITERAL}
     assert max(lengths) == 160
 
@@ -232,7 +232,7 @@ def test_digit_only_name_too_long() -> None:
 # ----------------------------
 
 
-@pytest.mark.parametrize("path", CORPUS_CCVS85_NC_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", CORPUS_NC_FILES, ids=lambda path: path.name)
 def test_corpus_invariant(path: Path) -> None:
     tokens = make_tokens(path)
     normalized = tokens.normalized

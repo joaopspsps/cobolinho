@@ -9,7 +9,7 @@ from cobolinho.stage2_normalized import CobolNormalizedSource
 from cobolinho.stage3_tokenizer import CobolTokens
 
 CORPUS_DIR = Path(__file__).parent.parent / "cbl"
-CORPUS_CCVS85_NC_FILES = sorted((CORPUS_DIR).glob("ccvs85/NC*.CBL"))
+CORPUS_NC_FILES = sorted((CORPUS_DIR).glob("NC*.CBL"))
 
 
 def make_lines(text_or_path: str | Path) -> CobolLines:

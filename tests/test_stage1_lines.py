@@ -6,7 +6,7 @@ import pytest
 
 from cobolinho.stage1_lines import CobolLineKind
 
-from .utils import CORPUS_CCVS85_NC_FILES, make_lines
+from .utils import CORPUS_NC_FILES, make_lines
 
 # Testes específicos
 # ------------------
@@ -73,7 +73,7 @@ def test_ignore_sequence_area_garbage(sequence: str) -> None:
 # ----------------------------
 
 
-@pytest.mark.parametrize("path", CORPUS_CCVS85_NC_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", CORPUS_NC_FILES, ids=lambda path: path.name)
 def test_corpus_spans_cover_lines(path: Path) -> None:
     lines = make_lines(path)
 

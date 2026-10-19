@@ -1,6 +1,6 @@
 # `cobolinho`
 
-Analisador léxico de programas COBOL em formato fixo (área de sequência,
+Analisador léxico de programas COBOL-85 em formato fixo (área de sequência,
 indicador, A, B e programa).
 
 ## Como rodar
@@ -15,14 +15,9 @@ uv run cobolinho -h
 
 ## Programas COBOL para teste
 
-O diretório `cbl` inclui exemplos de programas COBOL para testar o funcionamento
-do analisador léxico.
-
-### CCVS85
-
-O subdiretório `cbl/ccvs85` contém os programas COBOL da suíte de teste *COBOL
-Compiler Validation System* versão 4.2, obtida do diretório `src` do repositório
-<https://github.com/z390development/nistcobol85>.
+O diretório `cbl` contém os programas COBOL da suíte de teste *COBOL Compiler
+Validation System* versão 4.2. Eles foram obtidos do diretório `src` do
+repositório <https://github.com/z390development/nistcobol85>
 
 São 14 módulos que abrangem os principais recursos do COBOL-85:
 

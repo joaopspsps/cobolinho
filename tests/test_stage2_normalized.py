@@ -7,7 +7,7 @@ import pytest
 from cobolinho.diagnostics import DiagnosticSeverity
 from cobolinho.stage0_source import Span
 
-from .utils import CORPUS_CCVS85_NC_FILES, make_norm
+from .utils import CORPUS_NC_FILES, make_norm
 
 # Testes específicos
 # ------------------
@@ -227,7 +227,7 @@ def test_empty_source() -> None:
 # ----------------------------
 
 
-@pytest.mark.parametrize("path", CORPUS_CCVS85_NC_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", CORPUS_NC_FILES, ids=lambda path: path.name)
 def test_corpus_invariant(path: Path) -> None:
     normalized = make_norm(path)
     assert normalized.diagnostics == []
