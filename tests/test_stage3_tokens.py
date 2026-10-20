@@ -295,6 +295,82 @@ def test_picture_currency_sign_corpus(name: str, picture: str) -> None:
     assert find_token(tokens, picture).kind is K.PICTURE_STRING
 
 
+@pytest.mark.parametrize(
+    "name", ["AUTHOR", "INSTALLATION", "DATE-WRITTEN", "DATE-COMPILED", "SECURITY"]
+)
+def test_comment_entry(name: str) -> None:
+    tokens = make_tokens(f"""\
+000000 {name}. A "B' C.
+000000     PIC X. 01 ,;
+000000*COMENTÁRIO
+000000 ENVIRONMENT DIVISION.""")
+    assert kinds_values(tokens) == [
+        (K.RESERVED_WORD, name),
+        (K.PERIOD, "."),
+        (K.COMMENT_ENTRY, """A "B' C.\n    PIC X. 01 ,;"""),
+        (K.RESERVED_WORD, "ENVIRONMENT"),
+        (K.RESERVED_WORD, "DIVISION"),
+        (K.PERIOD, "."),
+    ]
+    entry = tokens[2]
+    assert entry.text == entry.value
+    assert tokens.to_raw_position(entry) == Position(1, 10 + len(name))
+    assert [tokens.raw.slice(s) for s in tokens.to_raw_spans(entry)] == [
+        """A "B' C.\n""",
+        "    PIC X. 01 ,;",
+    ]
+    assert tokens.diagnostics == []
+
+
+def test_comment_entry_next_line() -> None:
+    tokens = make_tokens("""\
+000000 AUTHOR.
+000000     FULANO.
+000000 DATE-WRITTEN.""")
+    assert kinds_values(tokens) == [
+        (K.RESERVED_WORD, "AUTHOR"),
+        (K.PERIOD, "."),
+        (K.COMMENT_ENTRY, "FULANO."),
+        (K.RESERVED_WORD, "DATE-WRITTEN"),
+        (K.PERIOD, "."),
+    ]
+
+
+def test_comment_entry_absent() -> None:
+    tokens = make_tokens("""\
+000000 AUTHOR.
+000000 SECURITY.
+000000 ENVIRONMENT DIVISION.""")
+    assert K.COMMENT_ENTRY not in [t.kind for t in tokens]
+    assert len(tokens) == 7
+
+
+def test_comment_entry_until_end() -> None:
+    tokens = make_tokens("000000 SECURITY. NENHUMA")
+    assert kinds_values(tokens)[-1] == (K.COMMENT_ENTRY, "NENHUMA")
+
+
+def test_comment_entry_requires_period() -> None:
+    tokens = make_tokens("000000 AUTHOR FULANO.")
+    assert kinds_values(tokens) == [
+        (K.RESERVED_WORD, "AUTHOR"),
+        (K.USER_WORD, "FULANO"),
+        (K.PERIOD, "."),
+    ]
+
+
+@pytest.mark.parametrize("name", ["CM101M.CBL", "NC302M.CBL", "NC303M.CBL"])
+def test_comment_entry_corpus(name: str) -> None:
+    tokens = make_tokens(CORPUS_DIR / name)
+    entries = [t for t in tokens if t.kind is K.COMMENT_ENTRY]
+    assert entries
+    for entry in entries:
+        assert tokens.norm.starts_in_area_a(entry.span.end + 1) or entry.span.end == len(
+            tokens.norm.text
+        )
+    assert tokens.diagnostics == []
+
+
 # Testes gerais sobre o corpus
 # ----------------------------
 

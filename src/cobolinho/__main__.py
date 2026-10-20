@@ -49,11 +49,16 @@ def dump_tokens(source: CobolRawSource, *, include_debug: bool, include_other: b
 
     for token in tokens:
         start = tokens.to_raw_position(token)
-        print(f"{start!s:>11} {token.kind.name:<20} {token.text}")
+        # Comentários podem ocupar várias linhas lógicas
+        text = token.text.replace("\n", "\\n")
+        print(f"{start!s:>11} {token.kind.name:<20} {text}")
 
 
 class _ArgparseFormatter(argparse.HelpFormatter):
-    """Formatter argparse traduzido."""
+    """Formatter argparse traduzido para o português.
+
+    Adiciona valor padrão após textos de ajuda de argumentos.
+    """
 
     def _format_usage(self, *args: Any, **kwargs: Any) -> str:
         """Traduz e simplifica a string de uso."""

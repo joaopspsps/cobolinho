@@ -32,7 +32,7 @@ COBOL_SPACES = " \n"
 
 
 class CobolTokenKind(enum.Enum):
-    """Tipo de token do COBOL."""
+    """Tipo de token COBOL."""
 
     RESERVED_WORD = enum.auto()
     USER_WORD = enum.auto()
@@ -47,6 +47,8 @@ class CobolTokenKind(enum.Enum):
     COLON = enum.auto()
     LEFT_PAREN = enum.auto()
     RIGHT_PAREN = enum.auto()
+    COMMENT_ENTRY = enum.auto()
+    """Comentário dos parágrafos opcionais da `IDENTIFICATION DIVISION` (`AUTHOR.` etc.)."""
     INVALID = enum.auto()
     """Cadeia de caracteres que não forma nenhum token válido (sempre com diagnóstico)."""
 
@@ -61,7 +63,7 @@ class CobolToken:
     """Span do token no texto normalizado."""
     value: str
     """Valor do token: palavras e cadeias de PICTURE em maiúsculas; literais alfanuméricos sem
-    aspas e desescapados."""
+    aspas e desescapados; comentários como no texto (podem ocupar várias linhas lógicas)."""
     text: str
     """Texto do token como aparece no texto normalizado."""
 
@@ -132,6 +134,18 @@ _CURRENCY_SIGN = (
 _PICTURE_CLAUSE = (["PIC", "IS"], ["PICTURE", "IS"], ["PIC"], ["PICTURE"])
 """Palavras que precedem uma cadeia de PICTURE."""
 
+_COMMENT_ENTRY_PARAGRAPHS = {
+    "AUTHOR",
+    "INSTALLATION",
+    "DATE-WRITTEN",
+    "DATE-COMPILED",
+    "SECURITY",
+}
+"""Parágrafos da `IDENTIFICATION DIVISION` cujo nome (seguido de ponto) precede um comentário."""
+
+_RE_LINE_START = re.compile(r"\n *")
+"""Início de linha lógica até o primeiro caractere não espaço."""
+
 _RE_INTEGER = re.compile(r"[0-9]+")
 """Inteiro sem sinal (literal numérico ou nome de parágrafo/seção só com dígitos)."""
 
@@ -182,6 +196,8 @@ class _Scanner:
             c = text[i]
             if c in COBOL_SPACES:
                 i += 1
+            elif self.is_comment_entry_start(i):
+                i = self.scan_comment_entry(i)
             elif self.ends_with_words(*_PICTURE_CLAUSE) and not self.is_punctuation(i):
                 i = self.scan_picture(i)
             elif c in COBOL_QUOTES:
@@ -232,6 +248,18 @@ class _Scanner:
         if len(value) == 1 and self.ends_with_words(*_CURRENCY_SIGN):
             self.currency_sign = value
         self.add_token(CobolTokenKind.ALPHANUMERIC_LITERAL, Span(start, end), value)
+        return end
+
+    def scan_comment_entry(self, start: int) -> int:
+        """Lê um comentário até a próxima linha lógica com conteúdo na área A (ou o fim)."""
+        text = self.norm.text
+        end = len(text)
+        for match in _RE_LINE_START.finditer(text, start):
+            if self.norm.starts_in_area_a(match.end()):
+                end = match.start()
+                break
+        # Linhas lógicas não terminam com espaços, então o comentário também não
+        self.add_token(CobolTokenKind.COMMENT_ENTRY, Span(start, end), text[start:end])
         return end
 
     def scan_picture(self, start: int) -> int:
@@ -305,24 +333,37 @@ class _Scanner:
     # Predicados puros
     # ----------------
 
-    def is_followed_by_space(self, i: int) -> bool:
-        """Indica se o caractere `i` é o último do texto ou é seguido de espaço."""
+    def is_followed_by_space(self, offset: int) -> bool:
+        """Indica se o offset é o último do texto ou é seguido de espaço."""
         text = self.norm.text
-        return i + 1 >= len(text) or text[i + 1] in COBOL_SPACES
+        return offset + 1 >= len(text) or text[offset + 1] in COBOL_SPACES
 
-    def is_punctuation(self, i: int) -> bool:
-        """Indica se a posição `i` é um separador de pontuação (`.`, `,` ou `;` seguido de espaço)."""
-        return self.norm.text[i] in _PUNCTUATION_KINDS and self.is_followed_by_space(i)
+    def is_punctuation(self, offset: int) -> bool:
+        """Indica se o offset contém um separador de pontuação (`.`, `,` ou `;` seguido de espaço)."""
+        return self.norm.text[offset] in _PUNCTUATION_KINDS and self.is_followed_by_space(offset)
 
-    def is_separator(self, i: int) -> bool:
-        """Indica se a posição `i` começa um separador (ou é o fim do texto)."""
+    def is_separator(self, offset: int) -> bool:
+        """Indica se o offset começa um separador (ou é o fim do texto)."""
         text = self.norm.text
-        if i >= len(text):
+        if offset >= len(text):
             return True
-        c = text[i]
+        c = text[offset]
         if c in COBOL_SPACES or c in COBOL_QUOTES or c in _DELIMITER_KINDS:
             return True
-        return self.is_punctuation(i)
+        return self.is_punctuation(offset)
+
+    def is_comment_entry_start(self, offset: int) -> bool:
+        """Indica se o offset começa um comentário: vem depois de `AUTHOR.` etc. e não está na
+        área A (senão é o próximo parágrafo, e o comentário está ausente)."""
+        if len(self.tokens) < 2:
+            return False
+        name, period = self.tokens[-2:]
+        return (
+            period.kind is CobolTokenKind.PERIOD
+            and name.kind is CobolTokenKind.RESERVED_WORD
+            and name.value in _COMMENT_ENTRY_PARAGRAPHS
+            and not self.norm.starts_in_area_a(offset)
+        )
 
     def ends_with_words(self, *sequences: list[str]) -> bool:
         """Indica se os últimos tokens são as palavras de alguma das sequências dadas."""

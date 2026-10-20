@@ -1,3 +1,5 @@
+"""Testes do estágio 0 raw."""
+
 import pytest
 
 from cobolinho.stage0_raw import CobolRawSource, Position, Span

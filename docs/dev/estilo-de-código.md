@@ -10,7 +10,7 @@ eficiente ou fácil de manter.
 Funções e métodos são nomeados pelo que fazem: `group_lines`, `find_segment`,
 `add_raw`. Verbos descritivos enriquecem a documentação de uma função.
 Propriedades e campos são lidos como dados (substantivos): `norm_length`,
-`source`, `is_comment_like`.
+`raw`, `is_comment_like`.
 
 Prefixos idiomáticos do Python são exceções, por exemplo:
 
@@ -26,13 +26,13 @@ Funções podem ter prefixos compartilhados antes dos verbos, como em C
 Ruim:
 
 ``` py
-def newline_offset(source, line): ...
+def newline_offset(raw, line): ...
 ```
 
 Bom:
 
 ``` py
-def find_newline_offset(source, line): ...
+def find_newline_offset(raw, line): ...
 ```
 
 ### Nomes relacionados compartilham o prefixo
