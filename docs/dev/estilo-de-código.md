@@ -70,13 +70,14 @@ sem repetir o que o contexto (classe, módulo, tipo) já diz.
 Ruim:
 
 ``` py
-offset_of_character_in_normalized_source
+i
+offset_of_character_in_norm_source
 ```
 
 Bom:
 
 ``` py
-norm_start  # dentro de Segment, "do segmento" é implícito
+norm_start
 ```
 
 ### Referências

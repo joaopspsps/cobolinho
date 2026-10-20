@@ -5,53 +5,51 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from .stage0_source import CobolSource
+from .stage0_raw import CobolRawSource
 from .stage1_lines import CobolLines
-from .stage2_normalized import CobolNormalizedSource
-from .stage3_tokenizer import CobolTokens
+from .stage2_norm import CobolNormSource
+from .stage3_tokens import CobolTokens
 
-STAGES = ("source", "lines", "normalized", "tokens")
+STAGES = ("raw", "lines", "norm", "tokens")
 
 
-def dump_lines(source: CobolSource) -> None:
+def dump_lines(source: CobolRawSource) -> None:
     """Imprime as linhas físicas classificadas, uma por linha."""
-    for line in CobolLines.from_source(source):
+    for line in CobolLines.from_raw(source):
         body = source.slice(line.span.body).rstrip(" ")
         indicator = source.slice(line.span.indicator).rstrip(" ")
         print(f"{line.number:>8} {line.kind.name:<12} {indicator:>1}|{body}")
 
 
-def dump_normalized(source: CobolSource, *, include_debug: bool, include_other: bool) -> None:
+def dump_norm(raw: CobolRawSource, *, include_debug: bool, include_other: bool) -> None:
     """Imprime as linhas lógicas normalizadas com o intervalo de linhas físicas de origem."""
-    lines = CobolLines.from_source(source)
-    normalized = CobolNormalizedSource.from_lines(
+    lines = CobolLines.from_raw(raw)
+    norm = CobolNormSource.from_lines(
         lines, include_debug=include_debug, include_other=include_other
     )
-    for diagnostic in normalized.diagnostics:
-        print(diagnostic.format(source), file=sys.stderr)
+    for diagnostic in norm.diagnostics:
+        print(diagnostic.format(raw), file=sys.stderr)
 
-    for offset, text in normalized.iter_logical_lines():
-        first, _ = normalized.to_raw_line_col(offset)
-        last, _ = normalized.to_raw_line_col(offset + max(len(text) - 1, 0))
-        lines_fmt = f"{first}" if first == last else f"{first}-{last}"
+    for offset, text in norm.iter_logical_lines():
+        start = norm.to_raw_position(offset)
+        end = norm.to_raw_position(offset + max(len(text) - 1, 0))
+        lines_fmt = f"{start.line}" if start.line == end.line else f"{start.line}-{end.line}"
         print(f"{lines_fmt:>11} |{text}")
 
 
-def dump_tokens(source: CobolSource, *, include_debug: bool, include_other: bool) -> None:
+def dump_tokens(source: CobolRawSource, *, include_debug: bool, include_other: bool) -> None:
     """Imprime os tokens, um por linha, com a posição crua do início de cada um."""
-    lines = CobolLines.from_source(source)
-    normalized = CobolNormalizedSource.from_lines(
+    lines = CobolLines.from_raw(source)
+    norm = CobolNormSource.from_lines(
         lines, include_debug=include_debug, include_other=include_other
     )
-    tokens = CobolTokens.from_normalized(normalized)
-    for diagnostic in normalized.diagnostics + tokens.diagnostics:
+    tokens = CobolTokens.from_norm(norm)
+    for diagnostic in norm.diagnostics + tokens.diagnostics:
         print(diagnostic.format(source), file=sys.stderr)
 
     for token in tokens:
-        (start_line, start_col), (end_line, end_col) = tokens.to_raw_line_cols(token)
-        print(
-            f"{f'{start_line}:{start_col}-{end_line}:{end_col}':>22} {token.kind.name:<20} {token.text}"
-        )
+        start = tokens.to_raw_position(token)
+        print(f"{start!s:>11} {token.kind.name:<20} {token.text}")
 
 
 class _ArgparseFormatter(argparse.HelpFormatter):
@@ -143,19 +141,17 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.path is None:
-        source = CobolSource("<stdin>", sys.stdin.buffer.read().decode())
+        source = CobolRawSource("<stdin>", sys.stdin.buffer.read().decode())
     else:
-        source = CobolSource(str(args.path), args.path.read_text(newline=""))
+        source = CobolRawSource(str(args.path), args.path.read_text(newline=""))
 
     match args.stage:
-        case "0" | "source":
+        case "0" | "raw":
             sys.stdout.write(source.text)
         case "1" | "lines":
             dump_lines(source)
-        case "2" | "normalized":
-            dump_normalized(
-                source, include_debug=args.include_debug, include_other=args.include_other
-            )
+        case "2" | "norm":
+            dump_norm(source, include_debug=args.include_debug, include_other=args.include_other)
         case "3" | "tokens":
             dump_tokens(source, include_debug=args.include_debug, include_other=args.include_other)
 

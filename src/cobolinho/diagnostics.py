@@ -3,7 +3,7 @@
 import enum
 from dataclasses import dataclass
 
-from .stage0_source import CobolSource, Span
+from .stage0_raw import CobolRawSource, Span
 
 
 class DiagnosticSeverity(enum.Enum):
@@ -21,6 +21,6 @@ class Diagnostic:
     message: str
     span: Span
 
-    def format(self, source: CobolSource) -> str:
+    def format(self, source: CobolRawSource) -> str:
         """Formata como `nome:linha:coluna: gravidade: mensagem`."""
         return f"{source.format_location(self.span.start)}: {self.severity.value}: {self.message}"

@@ -1,11 +1,11 @@
-"""Formato fixo: classificação das linhas pelo indicador."""
+"""Linhas do formato fixo classificadas pelo indicador."""
 
 import enum
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Self
 
-from .stage0_source import CobolSource, Span
+from cobolinho.stage0_raw import CobolRawSource, Span
 
 # Recortes das áreas por colunas, inclusivas, a partir de 1
 COBOL_COLS_SEQUENCE = 1, 6
@@ -107,26 +107,26 @@ class CobolLine:
 
 @dataclass(slots=True, frozen=True)
 class CobolLines:
-    """Linhas físicas de `source` classificadas pelo indicador."""
+    """Linhas do texto cru classificadas pelo indicador."""
 
-    source: CobolSource = field(repr=False, compare=False)
+    raw: CobolRawSource = field(repr=False, compare=False)
     lines: list[CobolLine]
 
     @classmethod
-    def from_source(cls, source: CobolSource) -> Self:
-        """Gera as linhas de `source` classificadas pelo indicador.
+    def from_raw(cls, raw: CobolRawSource) -> Self:
+        """Gera as linhas classificadas pelo indicador.
 
-        Para cada linha, `span.full` vem de `CobolSource.get_line_span` (ver documentação).
+        Para cada linha, `span.full` vem de `CobolRawSource.get_line_span` (ver documentação).
         """
         lines = []
 
-        for number in range(1, source.line_count + 1):
-            line_span = CobolLineSpan(source.get_line_span(number))
-            kind = _classify(source, line_span)
+        for number in range(1, raw.line_count + 1):
+            line_span = CobolLineSpan(raw.get_line_span(number))
+            kind = _classify(raw, line_span)
             line = CobolLine(number, kind, line_span)
             lines.append(line)
 
-        return cls(source, lines)
+        return cls(raw, lines)
 
     def get_line(self, number: int) -> CobolLine:
         """Obtém a linha `number` (começando em 1)."""
@@ -143,15 +143,15 @@ class CobolLines:
 # --------------
 
 
-def _classify(source: CobolSource, line_span: CobolLineSpan) -> CobolLineKind:
+def _classify(raw: CobolRawSource, line_span: CobolLineSpan) -> CobolLineKind:
     if span := line_span.indicator:
-        indicator = source.slice(span)
+        indicator = raw.slice(span)
     else:
         indicator = " "
 
     match indicator:
         case " ":
-            body = source.slice(line_span.body)
+            body = raw.slice(line_span.body)
             body_is_empty = len(body.strip(" ")) == 0
             return CobolLineKind.BLANK if body_is_empty else CobolLineKind.CODE
         case "*":

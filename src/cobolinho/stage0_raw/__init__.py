@@ -1,4 +1,4 @@
-"""Camada do arquivo-fonte cru: offsets, spans e localização linha/coluna."""
+"""Texto cru: offsets, spans e localização linha/coluna."""
 
 import bisect
 from dataclasses import dataclass, field
@@ -13,15 +13,38 @@ class Span:
 
     def __post_init__(self) -> None:
         if not 0 <= self.start <= self.end:
-            e = ValueError(f"span inválido: {self.start}..{self.end}")
+            e = ValueError(f"span inválido: {self}")
             raise e
 
     def __len__(self) -> int:
         return self.end - self.start
 
+    def __str__(self) -> str:
+        return f"[{self.start},{self.end})"
+
+
+@dataclass(slots=True, frozen=True, order=True)
+class Position:
+    """Posição legível (linha/coluna) de um offset."""
+
+    line: int
+    col: int
+
+    def __post_init__(self) -> None:
+        """Checa se os números são maiores que 0."""
+        if self.line < 1:
+            e = ValueError(f"linha deve ser maior que 0 (1-based): {self.line}")
+            raise e
+        if self.col < 1:
+            e = ValueError(f"coluna deve ser maior que 0 (1-based): {self.col}")
+            raise e
+
+    def __str__(self) -> str:
+        return f"{self.line}:{self.col}"
+
 
 @dataclass(slots=True, frozen=True)
-class CobolSource:
+class CobolRawSource:
     """Arquivo-fonte COBOL cru com lista de inícios de linha.
 
     Linhas são separadas apenas por `\\n`; um `\\r` imediatamente antes do `\\n` (ou no fim do
@@ -82,19 +105,19 @@ class CobolSource:
 
         return Span(start, end)
 
-    def to_line_col(self, offset: int) -> tuple[int, int]:
-        """Converte offset cru em `(linha, coluna)`, ambos começando em 1."""
+    def to_position(self, offset: int) -> Position:
+        """Converte offset cru em uma posição."""
         if not 0 <= offset <= len(self.text):
             e = IndexError(f"offset fora do arquivo: {offset}")
             raise e
 
         index = bisect.bisect_right(self._line_starts, offset) - 1
-        return index + 1, offset - self._line_starts[index] + 1
+        return Position(index + 1, offset - self._line_starts[index] + 1)
 
     def format_location(self, offset: int) -> str:
         """Formata offset como `nome:linha:coluna`."""
-        line, col = self.to_line_col(offset)
-        return f"{self.name}:{line}:{col}"
+        position = self.to_position(offset)
+        return f"{self.name}:{position}"
 
     def slice(self, span: Span) -> str:
         """Obtém uma porção do texto cru com um span."""

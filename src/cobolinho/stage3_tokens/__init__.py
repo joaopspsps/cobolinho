@@ -1,15 +1,16 @@
-"""Tokenizer: divide o texto normalizado em tokens (palavras, literais, separadores)."""
+"""Tokens: palavras, literais, separadores."""
 
 import enum
+import functools
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Self
 
-from .diagnostics import Diagnostic, DiagnosticSeverity
-from .reserved_words import COBOL_RESERVED_WORDS
-from .stage0_source import CobolSource, Span
-from .stage2_normalized import COBOL_QUOTES, CobolNormalizedSource
+from cobolinho.diagnostics import Diagnostic, DiagnosticSeverity
+from cobolinho.stage0_raw import CobolRawSource, Position, Span
+from cobolinho.stage2_norm import COBOL_QUOTES, CobolNormSource
+from cobolinho.stage3_tokens.reserved_words import COBOL_RESERVED_WORDS
 
 COBOL_OPERATORS = {"+", "-", "*", "/", "**", "=", "<", ">", ">=", "<="}
 """Operadores aritméticos e relacionais."""
@@ -23,6 +24,9 @@ COBOL_MAX_NUMERIC_DIGITS = 18
 COBOL_MAX_ALPHANUMERIC_LENGTH = 160
 """Limite de caracteres em um literal alfanumérico."""
 
+COBOL_MAX_PICTURE_LENGTH = 30
+"""Limite de caracteres em uma cadeia de PICTURE."""
+
 COBOL_SPACES = " \n"
 """Caracteres de espaço no texto normalizado (o newline separa linhas lógicas)."""
 
@@ -34,6 +38,8 @@ class CobolTokenKind(enum.Enum):
     USER_WORD = enum.auto()
     NUMERIC_LITERAL = enum.auto()
     ALPHANUMERIC_LITERAL = enum.auto()
+    PICTURE_STRING = enum.auto()
+    """Cadeia de caracteres da cláusula `PIC/PICTURE [IS]`."""
     OPERATOR = enum.auto()
     PERIOD = enum.auto()
     COMMA = enum.auto()
@@ -47,16 +53,15 @@ class CobolTokenKind(enum.Enum):
 
 @dataclass(slots=True, frozen=True)
 class CobolToken:
-    """Token com intervalo semiaberto `[start, end)` em offsets do texto normalizado."""
+    """Token do texto normalizado."""
 
     kind: CobolTokenKind
     """Tipo do token."""
-    start: int
-    """Offset do primeiro caractere do token no texto normalizado."""
-    end: int
-    """Offset do último caractere do token no texto normalizado."""
+    span: Span
+    """Span do token no texto normalizado."""
     value: str
-    """Valor do token: palavras em maiúsculas; literais alfanuméricos sem aspas e desescapados."""
+    """Valor do token: palavras e cadeias de PICTURE em maiúsculas; literais alfanuméricos sem
+    aspas e desescapados."""
     text: str
     """Texto do token como aparece no texto normalizado."""
 
@@ -65,35 +70,33 @@ class CobolToken:
 class CobolTokens:
     """Tokens do texto normalizado."""
 
-    normalized: CobolNormalizedSource = field(repr=False, compare=False)
+    norm: CobolNormSource = field(repr=False, compare=False)
     tokens: list[CobolToken]
     diagnostics: list[Diagnostic]
 
     @classmethod
-    def from_normalized(cls, normalized: CobolNormalizedSource) -> Self:
-        """Divide o texto de `normalized` em tokens."""
-        scanner = _Scanner(normalized)
+    def from_norm(cls, norm: CobolNormSource) -> Self:
+        """Divide o texto normalizado em tokens."""
+        scanner = _Scanner(norm)
         scanner.scan()
-        return cls(normalized, scanner.tokens, scanner.diagnostics)
+        return cls(norm, scanner.tokens, scanner.diagnostics)
 
     @property
-    def source(self) -> CobolSource:
-        """Atalho para `normalized.source`."""
-        return self.normalized.source
+    def raw(self) -> CobolRawSource:
+        """Atalho para o texto cru."""
+        return self.norm.raw
 
     def to_raw_spans(self, token: CobolToken) -> list[Span]:
         """Spans crus do token (vários se ele for continuado em mais de uma linha física)."""
-        return self.normalized.map.to_raw_spans(token.start, token.end)
+        return self.norm.to_raw_spans(token.span)
 
-    def to_raw_line_cols(self, token: CobolToken) -> tuple[tuple[int, int], tuple[int, int]]:
-        """`(linha, coluna)` crus do início e fim do token."""
-        return self.normalized.to_raw_line_col(token.start), self.normalized.to_raw_line_col(
-            token.end
-        )
+    def to_raw_position(self, token: CobolToken) -> Position:
+        """Posição crua do início do token."""
+        return self.norm.to_raw_position(token.span.start)
 
     def format_location(self, token: CobolToken) -> str:
         """Formata o início do token como `nome:linha:coluna` crus."""
-        return self.normalized.format_location(token.start)
+        return self.norm.format_location(token.span.start)
 
     def __len__(self) -> int:
         return len(self.tokens)
@@ -118,6 +121,17 @@ _RE_NUMERIC = {
 _DECIMAL_POINT_IS_COMMA = (["DECIMAL-POINT", "IS", "COMMA"], ["DECIMAL-POINT", "COMMA"])
 """Cláusula `DECIMAL-POINT IS COMMA` (com `IS` opcional) do parágrafo `SPECIAL-NAMES`."""
 
+_CURRENCY_SIGN = (
+    ["CURRENCY", "SIGN", "IS"],
+    ["CURRENCY", "SIGN"],
+    ["CURRENCY", "IS"],
+    ["CURRENCY"],
+)
+"""Cláusula `CURRENCY [SIGN] [IS]` (seguida de literal) do parágrafo `SPECIAL-NAMES`."""
+
+_PICTURE_CLAUSE = (["PIC", "IS"], ["PICTURE", "IS"], ["PIC"], ["PICTURE"])
+"""Palavras que precedem uma cadeia de PICTURE."""
+
 _RE_INTEGER = re.compile(r"[0-9]+")
 """Inteiro sem sinal (literal numérico ou nome de parágrafo/seção só com dígitos)."""
 
@@ -139,40 +153,51 @@ _DELIMITER_KINDS = {
 """Separadores que valem em qualquer posição."""
 
 
+@functools.cache
+def _compile_picture_regex(currency_sign: str) -> re.Pattern[str]:
+    """Cadeia de PICTURE: símbolos, cada um opcionalmente seguido de repetição `(n)`, `n > 0`."""
+    symbol = rf"[ABEPSVXZ90/,.+*-]|{re.escape(currency_sign)}"
+    return re.compile(rf"(CR|DB|({symbol})(\(0*[1-9][0-9]*\))?)+", re.IGNORECASE)
+
+
 @dataclass(slots=True)
 class _Scanner:
     """Estado da varredura do texto normalizado."""
 
-    normalized: CobolNormalizedSource
+    norm: CobolNormSource
     tokens: list[CobolToken] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
     decimal_point: str = "."
     """Ponto decimal dos literais numéricos (`,` após `DECIMAL-POINT IS COMMA`)."""
+    currency_sign: str = "$"
+    """Símbolo de moeda das cadeias de PICTURE (alterado por `CURRENCY SIGN IS literal`)."""
 
     # Métodos de scan
     # ---------------
 
     def scan(self) -> None:
-        text = self.normalized.text
+        text = self.norm.text
         i = 0
         while i < len(text):
             c = text[i]
             if c in COBOL_SPACES:
                 i += 1
+            elif self.ends_with_words(*_PICTURE_CLAUSE) and not self.is_punctuation(i):
+                i = self.scan_picture(i)
             elif c in COBOL_QUOTES:
                 i = self.scan_alphanumeric(i)
             elif c in _DELIMITER_KINDS:
-                self.add_token(_DELIMITER_KINDS[c], i, i + 1, c)
+                self.add_token(_DELIMITER_KINDS[c], Span(i, i + 1), c)
                 i += 1
-            elif c in _PUNCTUATION_KINDS and self.is_followed_by_space(i):
-                self.add_token(_PUNCTUATION_KINDS[c], i, i + 1, c)
+            elif self.is_punctuation(i):
+                self.add_token(_PUNCTUATION_KINDS[c], Span(i, i + 1), c)
                 i += 1
             else:
                 i = self.scan_string(i)
 
     def scan_alphanumeric(self, start: int) -> int:
         """Lê um literal alfanumérico; aspas duplicadas dentro dele são escapes."""
-        text = self.normalized.text
+        text = self.norm.text
         quote = text[start]
         line_end = text.find("\n", start)
         if line_end == -1:
@@ -182,7 +207,9 @@ class _Scanner:
         while True:
             close = text.find(quote, i, line_end)
             if close == -1:
-                self.add_error("literal alfanumérico sem aspa de fechamento", start, start + 1)
+                self.add_error(
+                    "literal alfanumérico sem aspa de fechamento", Span(start, start + 1)
+                )
                 end, value = line_end, text[start + 1 : line_end]
                 break
             if text.startswith(quote, close + 1):
@@ -193,17 +220,44 @@ class _Scanner:
 
         value = value.replace(quote * 2, quote)
         if not value:
-            self.add_error("literal alfanumérico vazio", start, end)
+            self.add_error("literal alfanumérico vazio", Span(start, end))
         elif len(value) > COBOL_MAX_ALPHANUMERIC_LENGTH:
             self.add_error(
                 f"literal alfanumérico com mais de {COBOL_MAX_ALPHANUMERIC_LENGTH} caracteres",
-                start,
-                end,
+                Span(start, end),
             )
         if end < len(text) and (text[end] in COBOL_QUOTES + "(" or not self.is_separator(end)):
-            self.add_error("literal alfanumérico deve ser seguido de separador", end, end + 1)
+            self.add_error("literal alfanumérico deve ser seguido de separador", Span(end, end + 1))
 
-        self.add_token(CobolTokenKind.ALPHANUMERIC_LITERAL, start, end, value)
+        if len(value) == 1 and self.ends_with_words(*_CURRENCY_SIGN):
+            self.currency_sign = value
+        self.add_token(CobolTokenKind.ALPHANUMERIC_LITERAL, Span(start, end), value)
+        return end
+
+    def scan_picture(self, start: int) -> int:
+        """Lê uma cadeia de PICTURE até um espaço ou separador de pontuação (ponto final etc.)."""
+        text = self.norm.text
+        end = start + 1
+        while end < len(text) and text[end] not in COBOL_SPACES and not self.is_punctuation(end):
+            end += 1
+
+        string = text[start:end]
+        # `IS` não é uma cadeia de PICTURE válida, então é a palavra opcional de `PIC IS`
+        if string.upper() == "IS" and self.ends_with_words(["PIC"], ["PICTURE"]):
+            return self.scan_string(start)
+
+        if _compile_picture_regex(self.currency_sign).fullmatch(string):
+            kind = CobolTokenKind.PICTURE_STRING
+            if len(string) > COBOL_MAX_PICTURE_LENGTH:
+                self.add_error(
+                    f"cadeia de PICTURE com mais de {COBOL_MAX_PICTURE_LENGTH} caracteres: {string}",
+                    Span(start, end),
+                )
+        else:
+            kind = CobolTokenKind.INVALID
+            self.add_error(f"cadeia de PICTURE inválida: {string}", Span(start, end))
+
+        self.add_token(kind, Span(start, end), string.upper())
         return end
 
     def scan_string(self, start: int) -> int:
@@ -212,7 +266,7 @@ class _Scanner:
         while not self.is_separator(end):
             end += 1
 
-        string = self.normalized.text[start:end]
+        string = self.norm.text[start:end]
         is_integer = _RE_INTEGER.fullmatch(string) is not None
         if _RE_WORD.fullmatch(string) and not is_integer:
             value = string.upper()
@@ -223,7 +277,8 @@ class _Scanner:
             )
             if len(string) > COBOL_MAX_WORD_LENGTH:
                 self.add_error(
-                    f"palavra com mais de {COBOL_MAX_WORD_LENGTH} caracteres: {string}", start, end
+                    f"palavra com mais de {COBOL_MAX_WORD_LENGTH} caracteres: {string}",
+                    Span(start, end),
                 )
         elif _RE_NUMERIC[self.decimal_point].fullmatch(string):
             kind, value = CobolTokenKind.NUMERIC_LITERAL, string
@@ -234,16 +289,15 @@ class _Scanner:
             if digits > limit:
                 self.add_error(
                     f"literal numérico com mais de {limit} dígitos: {string}",
-                    start,
-                    end,
+                    Span(start, end),
                 )
         elif string in COBOL_OPERATORS:
             kind, value = CobolTokenKind.OPERATOR, string
         else:
             kind, value = CobolTokenKind.INVALID, string
-            self.add_error(f"cadeia de caracteres inválida: {string}", start, end)
+            self.add_error(f"cadeia de caracteres inválida: {string}", Span(start, end))
 
-        self.add_token(kind, start, end, value)
+        self.add_token(kind, Span(start, end), value)
         if value == "COMMA" and self.ends_with_words(*_DECIMAL_POINT_IS_COMMA):
             self.decimal_point = ","
         return end
@@ -253,18 +307,22 @@ class _Scanner:
 
     def is_followed_by_space(self, i: int) -> bool:
         """Indica se o caractere `i` é o último do texto ou é seguido de espaço."""
-        text = self.normalized.text
+        text = self.norm.text
         return i + 1 >= len(text) or text[i + 1] in COBOL_SPACES
+
+    def is_punctuation(self, i: int) -> bool:
+        """Indica se a posição `i` é um separador de pontuação (`.`, `,` ou `;` seguido de espaço)."""
+        return self.norm.text[i] in _PUNCTUATION_KINDS and self.is_followed_by_space(i)
 
     def is_separator(self, i: int) -> bool:
         """Indica se a posição `i` começa um separador (ou é o fim do texto)."""
-        text = self.normalized.text
+        text = self.norm.text
         if i >= len(text):
             return True
         c = text[i]
         if c in COBOL_SPACES or c in COBOL_QUOTES or c in _DELIMITER_KINDS:
             return True
-        return c in _PUNCTUATION_KINDS and self.is_followed_by_space(i)
+        return self.is_punctuation(i)
 
     def ends_with_words(self, *sequences: list[str]) -> bool:
         """Indica se os últimos tokens são as palavras de alguma das sequências dadas."""
@@ -279,9 +337,12 @@ class _Scanner:
     # Helpers com side effects
     # ------------------------
 
-    def add_token(self, kind: CobolTokenKind, start: int, end: int, value: str) -> None:
-        self.tokens.append(CobolToken(kind, start, end, value, self.normalized.text[start:end]))
+    def add_token(self, kind: CobolTokenKind, span: Span, value: str) -> None:
+        text = self.norm.slice(span)
+        token = CobolToken(kind, span, value, text)
+        self.tokens.append(token)
 
-    def add_error(self, message: str, start: int, end: int) -> None:
-        span = self.normalized.map.to_raw_spans(start, end)[0]
-        self.diagnostics.append(Diagnostic(DiagnosticSeverity.ERROR, message, span))
+    def add_error(self, message: str, span: Span) -> None:
+        raw_span = self.norm.to_raw_spans(span)[0]
+        diagnostic = Diagnostic(DiagnosticSeverity.ERROR, message, raw_span)
+        self.diagnostics.append(diagnostic)

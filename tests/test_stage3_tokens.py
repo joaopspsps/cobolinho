@@ -1,11 +1,12 @@
-"""Testes do estágio 3 tokenizer."""
+"""Testes do estágio 3 tokens."""
 
 from pathlib import Path
 
 import pytest
 
-from cobolinho.stage3_tokenizer import CobolToken, CobolTokens
-from cobolinho.stage3_tokenizer import CobolTokenKind as K
+from cobolinho.stage0_raw import Position
+from cobolinho.stage3_tokens import CobolToken, CobolTokens
+from cobolinho.stage3_tokens import CobolTokenKind as K
 
 from .utils import CORPUS_DIR, CORPUS_NC_FILES, make_tokens
 
@@ -16,15 +17,6 @@ def kinds_values(tokens: CobolTokens) -> list[tuple[K, str]]:
 
 def find_token(tokens: CobolTokens, text: str) -> CobolToken:
     return next(t for t in tokens if t.text == text)
-
-
-def is_in_picture(tokens: CobolTokens, index: int) -> bool:
-    """Indica se o token `index` faz parte de uma cadeia de PICTURE (sem modo PICTURE ainda)."""
-    # Uma cadeia de PICTURE é uma sequência de tokens contíguos, sem espaços entre eles
-    while index > 0 and tokens[index - 1].end == tokens[index].start:
-        index -= 1
-    previous = [t.value for t in tokens.tokens[max(index - 2, 0) : index]]
-    return previous[-1:] in (["PIC"], ["PICTURE"]) or previous in (["PIC", "IS"], ["PICTURE", "IS"])
 
 
 # Testes específicos
@@ -51,8 +43,7 @@ def test_word_too_long() -> None:
     assert tokens[1].kind is K.USER_WORD
     (diagnostic,) = tokens.diagnostics
     assert (
-        diagnostic.format(tokens.source)
-        == f"t:1:17: erro: palavra com mais de 30 caracteres: {word}"
+        diagnostic.format(tokens.raw) == f"t:1:17: erro: palavra com mais de 30 caracteres: {word}"
     )
 
 
@@ -118,29 +109,29 @@ def test_separators() -> None:
     tokens = make_tokens("""\
 000000     ADD A, B; C TO D(1, 2) E(I:2).
 000000     F.""")
-    assert [t.kind for t in tokens] == [
-        K.RESERVED_WORD,
-        K.USER_WORD,
-        K.COMMA,
-        K.USER_WORD,
-        K.SEMICOLON,
-        K.USER_WORD,
-        K.RESERVED_WORD,
-        K.USER_WORD,
-        K.LEFT_PAREN,
-        K.NUMERIC_LITERAL,
-        K.COMMA,
-        K.NUMERIC_LITERAL,
-        K.RIGHT_PAREN,
-        K.USER_WORD,
-        K.LEFT_PAREN,
-        K.USER_WORD,
-        K.COLON,
-        K.NUMERIC_LITERAL,
-        K.RIGHT_PAREN,
-        K.PERIOD,
-        K.USER_WORD,
-        K.PERIOD,
+    assert [(t.text, t.kind) for t in tokens] == [
+        ("ADD", K.RESERVED_WORD),
+        ("A", K.USER_WORD),
+        (",", K.COMMA),
+        ("B", K.USER_WORD),
+        (";", K.SEMICOLON),
+        ("C", K.USER_WORD),
+        ("TO", K.RESERVED_WORD),
+        ("D", K.USER_WORD),
+        ("(", K.LEFT_PAREN),
+        ("1", K.NUMERIC_LITERAL),
+        (",", K.COMMA),
+        ("2", K.NUMERIC_LITERAL),
+        (")", K.RIGHT_PAREN),
+        ("E", K.USER_WORD),
+        ("(", K.LEFT_PAREN),
+        ("I", K.USER_WORD),
+        (":", K.COLON),
+        ("2", K.NUMERIC_LITERAL),
+        (")", K.RIGHT_PAREN),
+        (".", K.PERIOD),
+        ("F", K.USER_WORD),
+        (".", K.PERIOD),
     ]
 
 
@@ -165,8 +156,8 @@ def test_alphanumeric_literal_continued() -> None:
 000000-    "DEF" TO X.""")
     literal = tokens[1]
     assert literal.value == "ABC" + " " * (65 - len('    MOVE "ABC')) + "DEF"
-    assert [tokens.source.slice(s) for s in tokens.to_raw_spans(literal)] == ['"ABC', 'DEF"']
-    assert tokens.to_raw_line_cols(tokens[2]) == ((2, 18), (2, 20))
+    assert [tokens.raw.slice(s) for s in tokens.to_raw_spans(literal)] == ['"ABC', 'DEF"']
+    assert tokens.to_raw_position(tokens[2]) == Position(2, 18)
     assert tokens.diagnostics == []
 
 
@@ -186,8 +177,7 @@ def test_alphanumeric_literal_unterminated() -> None:
     assert tokens[2].value == "STOP"
     (diagnostic,) = tokens.diagnostics
     assert (
-        diagnostic.format(tokens.source)
-        == "t:1:17: erro: literal alfanumérico sem aspa de fechamento"
+        diagnostic.format(tokens.raw) == "t:1:17: erro: literal alfanumérico sem aspa de fechamento"
     )
 
 
@@ -216,7 +206,7 @@ def test_alphanumeric_literal_followed_by_separator(after: str) -> None:
     assert tokens.diagnostics == []
 
 
-def test_empty_source() -> None:
+def test_empty_text() -> None:
     tokens = make_tokens("")
     assert len(tokens) == 0
     assert tokens.diagnostics == []
@@ -228,6 +218,83 @@ def test_digit_only_name_too_long() -> None:
     assert diagnostic.message == f"literal numérico com mais de 30 dígitos: {'1' * 31}"
 
 
+def test_picture_strings() -> None:
+    tokens = make_tokens("""\
+000000 01  A PIC S9(4)V99. 01 B PICTURE IS x(5)BA(10)0X VALUE "X".
+000000 01  C PIC IS $$,$$9.99CR; 01 D PIC .9999/99,99. 01 E PIC 9(3)..""")
+    pictures = [t for t in tokens if t.kind is K.PICTURE_STRING]
+    assert [t.value for t in pictures] == [
+        "S9(4)V99",
+        "X(5)BA(10)0X",
+        "$$,$$9.99CR",
+        ".9999/99,99",
+        "9(3).",
+    ]
+    assert pictures[1].text == "x(5)BA(10)0X"
+    # `IS` é palavra reservada; pontuação seguida de espaço termina a cadeia
+    assert [t.kind for t in tokens if t.value == "IS"] == [K.RESERVED_WORD] * 2
+    assert kinds_values(tokens)[-2:] == [(K.PICTURE_STRING, "9(3)."), (K.PERIOD, ".")]
+    assert (K.SEMICOLON, ";") in kinds_values(tokens)
+    assert tokens.diagnostics == []
+
+
+def test_picture_missing_string() -> None:
+    tokens = make_tokens("000000 01  A PIC. 01 B PIC IS")
+    assert kinds_values(tokens) == [
+        (K.NUMERIC_LITERAL, "01"),
+        (K.USER_WORD, "A"),
+        (K.RESERVED_WORD, "PIC"),
+        (K.PERIOD, "."),
+        (K.NUMERIC_LITERAL, "01"),
+        (K.USER_WORD, "B"),
+        (K.RESERVED_WORD, "PIC"),
+        (K.RESERVED_WORD, "IS"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "text", ["X(0)", "X(", "X(A)", "XQ", "(5)X", "X(5)(3)", "CR(2)", "9:9", "IS", '"X"']
+)
+def test_picture_invalid(text: str) -> None:
+    tokens = make_tokens(f"000000 01  A PIC IS {text} VALUE 1.")
+    assert tokens[4].kind is K.INVALID
+    assert tokens[4].text == text
+    assert tokens[5].value == "VALUE"
+    (diagnostic,) = tokens.diagnostics
+    assert diagnostic.message == f"cadeia de PICTURE inválida: {text}"
+
+
+def test_picture_too_long() -> None:
+    tokens = make_tokens(f"000000 01  A PIC {'X' * 31}.")
+    assert tokens[3].kind is K.PICTURE_STRING
+    (diagnostic,) = tokens.diagnostics
+    assert (
+        diagnostic.format(tokens.raw)
+        == f"t:1:18: erro: cadeia de PICTURE com mais de 30 caracteres: {'X' * 31}"
+    )
+
+
+def test_picture_currency_sign() -> None:
+    tokens = make_tokens("""\
+000000 01  A PIC $$9 B PIC W9.
+000000     CURRENCY SIGN IS "W".
+000000 01  C PIC WW9 D PIC $9.""")
+    assert [t.kind for t in tokens if t.value in ("$$9", "W9", "WW9", "$9")] == [
+        K.PICTURE_STRING,
+        K.INVALID,
+        K.PICTURE_STRING,
+        K.INVALID,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "picture"), [("NC107A.CBL", "W9999"), ("NC108M.CBL", "<(3),<<<.99")]
+)
+def test_picture_currency_sign_corpus(name: str, picture: str) -> None:
+    tokens = make_tokens(CORPUS_DIR / name)
+    assert find_token(tokens, picture).kind is K.PICTURE_STRING
+
+
 # Testes gerais sobre o corpus
 # ----------------------------
 
@@ -235,25 +302,22 @@ def test_digit_only_name_too_long() -> None:
 @pytest.mark.parametrize("path", CORPUS_NC_FILES, ids=lambda path: path.name)
 def test_corpus_invariant(path: Path) -> None:
     tokens = make_tokens(path)
-    normalized = tokens.normalized
+    norm = tokens.norm
 
     covered = set()
     for token in tokens:
-        assert token.text == normalized.text[token.start : token.end]
-        covered.update(range(token.start, token.end))
+        assert token.text == norm.slice(token.span)
+        covered.update(range(token.span.start, token.span.end))
         # Round-trip: os spans crus juntados reproduzem o token, sem os caracteres sintéticos
-        raw = "".join(normalized.source.slice(s) for s in tokens.to_raw_spans(token))
+        raw = "".join(norm.raw.slice(s) for s in tokens.to_raw_spans(token))
         assert raw == "".join(
             c
-            for i, c in enumerate(token.text, start=token.start)
-            if not normalized.map.find_segment(i).synthetic
+            for i, c in enumerate(token.text, start=token.span.start)
+            if not norm.find_segment(i).synthetic
         )
 
     # Os tokens cobrem todo o texto normalizado, exceto espaços
-    for i, c in enumerate(normalized.text):
+    for i, c in enumerate(norm.text):
         assert i in covered or c in " \n"
 
-    # Enquanto não há modo PICTURE, só cadeias de PICTURE são inválidas
-    invalid = [i for i, t in enumerate(tokens) if t.kind is K.INVALID]
-    assert all(is_in_picture(tokens, i) for i in invalid)
-    assert len(tokens.diagnostics) == len(invalid)
+    assert not tokens.diagnostics

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from cobolinho.stage0_raw import Position
 from cobolinho.stage1_lines import CobolLineKind
 
 from .utils import CORPUS_NC_FILES, make_lines
@@ -36,17 +37,17 @@ class TestClassifyIndicatorKind:
         lines = make_lines(f"000100{indicator}    MOVE A TO B.")
         line = lines.get_line(1)
         assert line.kind is kind
-        assert lines.source.slice(line.span.indicator) == indicator
+        assert lines.raw.slice(line.span.indicator) == indicator
 
 
 def test_classify_blank_and_short_lines() -> None:
     lines = make_lines("000100 \n0001\n\n" + " " * 80)
     assert [x.kind for x in lines] == [CobolLineKind.BLANK] * 4
     short = lines.get_line(1)
-    assert lines.source.slice(short.span.indicator) == " "
+    assert lines.raw.slice(short.span.indicator) == " "
     assert (
-        len(lines.source.slice(short.span.body)) == 0
-        and len(lines.source.slice(short.span.identification)) == 0
+        len(lines.raw.slice(short.span.body)) == 0
+        and len(lines.raw.slice(short.span.identification)) == 0
     )
 
 
@@ -54,10 +55,10 @@ def test_area_spans() -> None:
     body = "A" * 4 + "B" * 61
     lines = make_lines("SEQUEN" + "*" + body + "IDENTIFI")
     line = lines.get_line(1)
-    assert lines.source.slice(line.span.sequence) == "SEQUEN"
-    assert lines.source.slice(line.span.indicator) == "*"
-    assert lines.source.slice(line.span.body) == body
-    assert lines.source.slice(line.span.identification) == "IDENTIFI"
+    assert lines.raw.slice(line.span.sequence) == "SEQUEN"
+    assert lines.raw.slice(line.span.indicator) == "*"
+    assert lines.raw.slice(line.span.body) == body
+    assert lines.raw.slice(line.span.identification) == "IDENTIFI"
 
 
 # NC114M:486-491
@@ -65,7 +66,7 @@ def test_area_spans() -> None:
 def test_ignore_sequence_area_garbage(sequence: str) -> None:
     lines = make_lines(sequence + " " * 74)
     line = lines.get_line(1)
-    assert lines.source.slice(line.span.sequence) == sequence
+    assert lines.raw.slice(line.span.sequence) == sequence
     assert line.kind is CobolLineKind.BLANK
 
 
@@ -77,14 +78,14 @@ def test_ignore_sequence_area_garbage(sequence: str) -> None:
 def test_corpus_spans_cover_lines(path: Path) -> None:
     lines = make_lines(path)
 
-    assert len(lines) == lines.source.line_count
+    assert len(lines) == lines.raw.line_count
     for line in lines:
         # As áreas se concatenam exatamente na linha crua
         areas = ("sequence", "indicator", "body", "identification")
         assert "".join(
-            lines.source.slice(getattr(line.span, area)) for area in areas
-        ) == lines.source.slice(line.span.full)
-        assert lines.source.to_line_col(line.span.body.start) == (
+            lines.raw.slice(getattr(line.span, area)) for area in areas
+        ) == lines.raw.slice(line.span.full)
+        assert lines.raw.to_position(line.span.body.start) == Position(
             line.number,
             min(8, len(line.span.full) + 1),
         )
