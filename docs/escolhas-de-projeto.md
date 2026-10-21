@@ -9,12 +9,8 @@ O programa COBOL passa por estágios de processamento que utilizam a saída dos
 estágios anteriores. Estágios são pacotes `stage{n}_{nome}`, com o número para
 deixar a ordenação explícita.
 
-Restrições:
-
-- Módulos de estágio não devem importar de estágios subsequentes, mas podem
-  importar de estágios anteriores.
-- Módulos não de estágios (como `cli.py`) não devem importar de módulos de
-  estágios, a não ser que seja um módulo helper de orquestração.
+Restrição: módulos de estágio não devem importar de estágios subsequentes, mas
+podem importar de estágios anteriores.
 
 ### Saídas dos estágios
 
