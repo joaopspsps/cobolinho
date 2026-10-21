@@ -23,15 +23,15 @@ referência à saída do estágio anterior, de modo que qualquer saída é
 autossuficiente (por exemplo, para formatar localizações `nome:linha:coluna`).
 
 - Cada estágio tem um único construtor, que recebe apenas a saída do estágio
-  anterior (mais opções): `CobolLines.from_source(source)`,
+  anterior (mais opções): `CobolLines.from_raw(raw)`,
   `CobolNormSource.from_lines(lines)`, etc. Encadear estágios é tarefa do código
   de orquestração, não dos estágios.
 - Referências para estágios anteriores usam `field(repr=False, compare=False)`.
 - Atalhos para estágios mais antigos podem ser expostos como `@property` (por
-  exemplo, `CobolNormSource.source` é `self.lines.source`).
+  exemplo, `CobolNormSource.raw` é `self.lines.raw`).
 - Estruturas auxiliares (como `CobolNormSegment`) são dados puros, sem
   referência ao texto cru; métodos que precisam dele ficam na saída do estágio.
 - A saída de um estágio segue o padrão "referência ao estágio anterior + dados
-  próprios" (por exemplo, `CobolLines` tem `source` + `lines`, e
-  `CobolNormSource` tem `lines` + `text` + `segments` + `diagnostics`), sem
-  objetos intermediários que só repassam chamadas.
+  próprios" (por exemplo, `CobolLines` tem `raw` + `lines`, e `CobolNormSource`
+  tem `lines` + `text` + `segments` + `diagnostics`), sem objetos intermediários
+  que só repassam chamadas.

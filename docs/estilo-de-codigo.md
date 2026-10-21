@@ -9,12 +9,12 @@ eficiente ou fácil de manter.
 
 Funções e métodos são nomeados pelo que fazem: `group_lines`, `find_segment`,
 `add_raw`. Verbos descritivos enriquecem a documentação de uma função.
-Propriedades e campos são lidos como dados (substantivos): `norm_length`,
-`raw`, `is_comment_like`.
+Propriedades e campos são lidos como dados (substantivos): `norm_length`, `raw`,
+`is_comment_like`.
 
 Prefixos idiomáticos do Python são exceções, por exemplo:
 
-- `from_*`: para classmethods (`from_source`, `from_lines`).
+- `from_*`: para classmethods (`from_raw`, `from_lines`).
 - `to_*`: conversões (`to_raw_offset`, `to_raw_spans`).
 - `iter_*`: função com yield (`iter_logical_lines`).
 - `is_*`, `has_*`, `starts_*`: predicados (`starts_in_area_a`).

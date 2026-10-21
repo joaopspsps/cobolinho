@@ -170,7 +170,7 @@ _DELIMITER_KINDS = {
 @functools.cache
 def _compile_picture_regex(currency_sign: str) -> re.Pattern[str]:
     """Cadeia de PICTURE: símbolos, cada um opcionalmente seguido de repetição `(n)`, `n > 0`."""
-    symbol = rf"[ABEPSVXZ90/,.+*-]|{re.escape(currency_sign)}"
+    symbol = rf"[ABPSVXZ90/,.+*-]|{re.escape(currency_sign)}"
     return re.compile(rf"(CR|DB|({symbol})(\(0*[1-9][0-9]*\))?)+", re.IGNORECASE)
 
 
@@ -241,6 +241,11 @@ class _Scanner:
             self.add_error(
                 f"literal alfanumérico com mais de {COBOL_MAX_ALPHANUMERIC_LENGTH} caracteres",
                 Span(start, end),
+            )
+        # Aspa logo após outro literal já foi reportada pela verificação de fechamento dele
+        if start > 0 and text[start - 1] not in COBOL_SPACES + COBOL_QUOTES + "(":
+            self.add_error(
+                "literal alfanumérico deve ser precedido de espaço ou (", Span(start, start + 1)
             )
         if end < len(text) and (text[end] in COBOL_QUOTES + "(" or not self.is_separator(end)):
             self.add_error("literal alfanumérico deve ser seguido de separador", Span(end, end + 1))

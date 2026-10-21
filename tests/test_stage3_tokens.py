@@ -109,29 +109,29 @@ def test_separators() -> None:
     tokens = make_tokens("""\
 000000     ADD A, B; C TO D(1, 2) E(I:2).
 000000     F.""")
-    assert [(t.text, t.kind) for t in tokens] == [
-        ("ADD", K.RESERVED_WORD),
-        ("A", K.USER_WORD),
-        (",", K.COMMA),
-        ("B", K.USER_WORD),
-        (";", K.SEMICOLON),
-        ("C", K.USER_WORD),
-        ("TO", K.RESERVED_WORD),
-        ("D", K.USER_WORD),
-        ("(", K.LEFT_PAREN),
-        ("1", K.NUMERIC_LITERAL),
-        (",", K.COMMA),
-        ("2", K.NUMERIC_LITERAL),
-        (")", K.RIGHT_PAREN),
-        ("E", K.USER_WORD),
-        ("(", K.LEFT_PAREN),
-        ("I", K.USER_WORD),
-        (":", K.COLON),
-        ("2", K.NUMERIC_LITERAL),
-        (")", K.RIGHT_PAREN),
-        (".", K.PERIOD),
-        ("F", K.USER_WORD),
-        (".", K.PERIOD),
+    assert kinds_values(tokens) == [
+        (K.RESERVED_WORD, "ADD"),
+        (K.USER_WORD, "A"),
+        (K.COMMA, ","),
+        (K.USER_WORD, "B"),
+        (K.SEMICOLON, ";"),
+        (K.USER_WORD, "C"),
+        (K.RESERVED_WORD, "TO"),
+        (K.USER_WORD, "D"),
+        (K.LEFT_PAREN, "("),
+        (K.NUMERIC_LITERAL, "1"),
+        (K.COMMA, ","),
+        (K.NUMERIC_LITERAL, "2"),
+        (K.RIGHT_PAREN, ")"),
+        (K.USER_WORD, "E"),
+        (K.LEFT_PAREN, "("),
+        (K.USER_WORD, "I"),
+        (K.COLON, ":"),
+        (K.NUMERIC_LITERAL, "2"),
+        (K.RIGHT_PAREN, ")"),
+        (K.PERIOD, "."),
+        (K.USER_WORD, "F"),
+        (K.PERIOD, "."),
     ]
 
 
@@ -181,6 +181,26 @@ def test_alphanumeric_literal_unterminated() -> None:
     )
 
 
+def test_alphanumeric_literal_empty_continuation() -> None:
+    tokens = make_tokens("""\
+000000     DISPLAY "X
+000000-
+000000     STOP RUN.""")
+
+    literal = tokens[1]
+    assert (literal.kind, literal.text, literal.value) == (K.ALPHANUMERIC_LITERAL, '"X', "X")
+    assert tokens[2].value == "STOP"
+    # Cada estágio reporta o seu erro
+    (norm_diagnostic,) = tokens.norm.diagnostics
+    assert norm_diagnostic.format(tokens.raw) == (
+        't:2:7: erro: continuação de literal deve começar com "'
+    )
+    (diagnostic,) = tokens.diagnostics
+    assert (
+        diagnostic.format(tokens.raw) == "t:1:20: erro: literal alfanumérico sem aspa de fechamento"
+    )
+
+
 def test_alphanumeric_literal_empty_and_too_long() -> None:
     tokens = make_tokens('000000     MOVE "" TO X.')
     assert [d.message for d in tokens.diagnostics] == ["literal alfanumérico vazio"]
@@ -204,6 +224,30 @@ def test_alphanumeric_literal_not_followed_by_separator(after: str) -> None:
 def test_alphanumeric_literal_followed_by_separator(after: str) -> None:
     tokens = make_tokens(f'000000     MOVE "ABC"{after}TO X.')
     assert tokens.diagnostics == []
+
+
+@pytest.mark.parametrize("before", ["ABC", ")", ":", "1"])
+def test_alphanumeric_literal_not_preceded_by_separator(before: str) -> None:
+    tokens = make_tokens(f'000000     DISPLAY {before}"X".')
+    # O literal continua sendo reconhecido, só com diagnóstico
+    literal = find_token(tokens, '"X"')
+    assert literal.kind is K.ALPHANUMERIC_LITERAL
+    assert [d.format(tokens.raw) for d in tokens.diagnostics] == [
+        f"t:1:{20 + len(before)}: erro: literal alfanumérico deve ser precedido de espaço ou ("
+    ]
+
+
+@pytest.mark.parametrize("before", [" ", "("])
+def test_alphanumeric_literal_preceded_by_separator(before: str) -> None:
+    tokens = make_tokens(f'000000     DISPLAY{before}"X" TO X.')
+    assert tokens.diagnostics == []
+
+
+def test_alphanumeric_literals_adjacent_single_diagnostic() -> None:
+    tokens = make_tokens("000000     DISPLAY \"A\"'B'.")
+    assert [d.message for d in tokens.diagnostics] == [
+        "literal alfanumérico deve ser seguido de separador"
+    ]
 
 
 def test_empty_text() -> None:

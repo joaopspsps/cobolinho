@@ -38,7 +38,7 @@ class CobolLineKind(enum.Enum):
     """Continuação da linha anterior (`-`)."""
 
     OTHER = enum.auto()
-    """Qualquer outro indicador (por exemplo, marcadores de opção do EXEC85: A, B, S, Y)."""
+    """Qualquer outro indicador (por exemplo, marcadores de opção do EXEC85: Y, P, C, S, X)."""
 
     @property
     def is_comment_like(self) -> bool:

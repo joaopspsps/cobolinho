@@ -257,9 +257,9 @@ class _Builder:
 def _find_newline_offset(raw: CobolRawSource, line: CobolLine) -> int:
     """Offset do `\\n` que termina a linha física `line`.
 
-    Requer que a linha venha de `CobolLines.from_source` e não seja a última física
+    Requer que a linha venha de `CobolLines.from_raw` e não seja a última física
     para que o contrato seja válido; caso contrário, o offset pode não conter `\\n` (ver
-    `CobolLines.from_source`).
+    `CobolLines.from_raw`).
     """
     end = line.span.full.end
     if raw.text.startswith("\r\n", end):
@@ -312,11 +312,11 @@ def _build_logical_line(
     """Adiciona ao builder a linha lógica formada pelas linhas físicas do grupo."""
     orig_len_parts = len(builder.parts)
     first, *continuations = group
-    pending_span = first.span.body
-    pending_span_lstripped = pending_span
+    pending_span_lstripped = first.span.body
+    pending_span = pending_span_lstripped
 
     for line in continuations:
-        logical_text = "".join(builder.parts[orig_len_parts:]) + raw.slice(pending_span)
+        logical_text = "".join(builder.parts[orig_len_parts:]) + raw.slice(pending_span_lstripped)
         open_quote = _find_open_quote(logical_text)
         line_span = line.span.body
         line_span_lstripped = _strip_start(raw, line_span)
@@ -325,7 +325,7 @@ def _build_logical_line(
         # aspa: é a primeira metade de uma aspa escapada (`""`), então o literal continua aberto
         if (
             open_quote is None
-            and pending_span.end - pending_span_lstripped.start == _WIDTH_BODY
+            and pending_span_lstripped.end - pending_span.start == _WIDTH_BODY
             and line_span_lstripped
             and logical_text.endswith(raw.text[line_span_lstripped.start])
             and _find_open_quote(logical_text[:-1]) == raw.text[line_span_lstripped.start]
@@ -342,30 +342,40 @@ def _build_logical_line(
             )
 
         if open_quote is None:
-            builder.add_raw(_strip_end(raw, pending_span))
-            pending_span, pending_span_lstripped = line_span_lstripped, line_span
+            builder.add_raw(_strip_end(raw, pending_span_lstripped))
+            pending_span_lstripped, pending_span = line_span_lstripped, line_span
+            continue
+
+        # Literal aberto com continuação vazia: não há o que continuar, então a linha é ignorada e
+        # o literal fica sem fechamento no fim da linha anterior (sem preenchimento virtual)
+        if not line_span_lstripped:
+            diagnostics.append(
+                Diagnostic(
+                    DiagnosticSeverity.ERROR,
+                    f"continuação de literal deve começar com {open_quote}",
+                    line.span.indicator,
+                )
+            )
             continue
 
         # Literal aberto: estende até a coluna 72, com preenchimento virtual se a linha for curta
-        builder.add_raw(pending_span)
-        padding = _WIDTH_BODY - (pending_span.end - pending_span_lstripped.start)
-        builder.add_synthetic(" " * padding, pending_span.end)
-        pending_span_lstripped = line_span
+        builder.add_raw(pending_span_lstripped)
+        padding = _WIDTH_BODY - (pending_span_lstripped.end - pending_span.start)
+        builder.add_synthetic(" " * padding, pending_span_lstripped.end)
+        pending_span = line_span
         if line_span_lstripped and raw.text[line_span_lstripped.start] == open_quote:
-            pending_span = Span(line_span_lstripped.start + 1, line_span_lstripped.end)
+            pending_span_lstripped = Span(line_span_lstripped.start + 1, line_span_lstripped.end)
         else:
             diagnostics.append(
                 Diagnostic(
                     DiagnosticSeverity.ERROR,
                     f"continuação de literal deve começar com {open_quote}",
-                    Span(line_span_lstripped.start, line_span_lstripped.start + 1)
-                    if line_span_lstripped
-                    else line.span.indicator,
+                    Span(line_span_lstripped.start, line_span_lstripped.start + 1),
                 )
             )
-            pending_span = line_span_lstripped
+            pending_span_lstripped = line_span_lstripped
 
-    builder.add_raw(_strip_end(raw, pending_span))
+    builder.add_raw(_strip_end(raw, pending_span_lstripped))
 
 
 def _strip_start(raw: CobolRawSource, span: Span) -> Span:

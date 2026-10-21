@@ -1,7 +1,7 @@
 # `cobolinho`
 
 Analisador léxico de programas COBOL-85 em formato fixo (área de sequência,
-indicador, A, B e programa).
+indicador, A, B e identificação).
 
 ## Como rodar
 

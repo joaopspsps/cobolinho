@@ -199,6 +199,33 @@ def test_diagnostic_literal_continuation_without_quote() -> None:
     assert diagnostic.format(norm.raw) == 't:2:15: erro: continuação de literal deve começar com "'
 
 
+@pytest.mark.parametrize("empty_line", ["000000-", "000000-" + " " * 65])
+def test_diagnostic_literal_continuation_empty(empty_line: str) -> None:
+    norm = make_norm(f"""\
+000000     DISPLAY "X
+{empty_line}
+000000     STOP RUN.""")
+
+    (diagnostic,) = norm.diagnostics
+    assert diagnostic.format(norm.raw) == 't:2:7: erro: continuação de literal deve começar com "'
+    # Sem preenchimento virtual: o literal fica sem fechamento no fim da linha
+    assert norm.text == '    DISPLAY "X\n    STOP RUN.'
+    assert not any(segment.synthetic for segment in norm.segments)
+
+
+def test_diagnostic_literal_continuation_empty_then_valid() -> None:
+    # A linha vazia é ignorada; a continuação seguinte continua o literal da primeira linha
+    norm = make_norm("""\
+000000     MOVE "ABC
+000000-
+000000-    "DEF" TO X.""")
+
+    (diagnostic,) = norm.diagnostics
+    assert diagnostic.format(norm.raw) == 't:2:7: erro: continuação de literal deve começar com "'
+    padding_length = 65 - len('    MOVE "ABC')
+    assert norm.text == '    MOVE "ABC' + " " * padding_length + 'DEF" TO X.'
+
+
 def test_diagnostic_continuation_in_area_a() -> None:
     norm = make_norm("""\
 000000     MOVE AB
